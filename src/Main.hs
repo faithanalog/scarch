@@ -1,5 +1,9 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE StrictData #-}
 module Main where
 
@@ -13,8 +17,6 @@ import Control.Concurrent.STM.TQueue
        (TQueue, newTQueue, readTQueue, writeTQueue)
 import Control.Exception (bracket_)
 import Control.Monad
-import Control.Monad.Reader (ReaderT(..), ask, asks)
-import Control.Monad.Trans.Class (lift)
 import Data.Aeson
        (FromJSON(..), ToJSON(..), decodeStrict', encode, genericParseJSON,
         genericToEncoding, genericToJSON)
@@ -22,19 +24,22 @@ import Data.Aeson.Types (Options(..), camelTo2, defaultOptions)
 import qualified Data.ByteString as Strict
 import qualified Data.ByteString.Lazy as Lazy
 import Data.Char (isLower, toLower)
-import Data.Maybe (fromMaybe)
 import Data.Monoid
-import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Vector (Vector)
 import GHC.Generics (Generic)
 import Network.HTTP.Simple (httpSink, parseRequest)
-import System.Directory (createDirectoryIfMissing, makeAbsolute)
-import System.FilePath ((<.>), (</>), makeValid, takeExtension)
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath
+       ((<.>), (</>), makeValid, takeDirectory, takeExtension)
 import System.IO (hPutStrLn, stderr)
 import System.Process
-       (CreateProcess(..), StdStream(..), createProcess, proc,
-        waitForProcess)
+       (CreateProcess(std_out), StdStream(CreatePipe), createProcess,
+        proc, waitForProcess)
+import Control.Monad.Free.Church (F, iterM, liftF)
+
+-- You may be wondering why these all use String rather than Text.
+--
+-- The answer is, the libraries I use all expect String, so I don't have a
+-- use for the Text form of anything anyway.
 
 data TrackMetadata = TrackMetadata
   { trackmetaId :: String
@@ -70,7 +75,7 @@ trackMetadata t =
 data Playlist = Playlist
   { playlistId :: String
   , playlistTitle :: String
-  , playlistEntries :: Vector PlaylistEntry
+  , playlistEntries :: [PlaylistEntry]
   } deriving (Eq, Read, Show, Generic)
 
 newtype PlaylistEntry = PlaylistEntry
@@ -112,32 +117,75 @@ instance FromJSON PlaylistEntry where
   parseJSON = genericParseJSON jsonOpts
 
 
+data ScarchF a where
+  PrintInfo :: String -> a -> ScarchF a
+  PrintError :: String -> a -> ScarchF a
+  DownloadFile :: FilePath -> String -> a -> ScarchF a
+  WriteFile :: FilePath -> Lazy.ByteString -> a -> ScarchF a
+  GetMetadata :: String -> (Strict.ByteString -> a) -> ScarchF a
+  Concurrently :: forall a t b. Traversable t => t (Scarch b) -> (t b -> a) -> ScarchF a
+
+deriving instance Functor ScarchF
+
+type Scarch = F ScarchF
+
+runScarchIO :: Scarch a -> Env -> IO a
+runScarchIO scarch env =
+  let o = outQueue env
+      e = errQueue env
+      sem = reqSem env
+      withReqSem = bracket_ (waitQSem sem) (signalQSem sem)
+      phi (PrintInfo info m) = atomically (writeTQueue o info) *> m
+      phi (PrintError err m) = atomically (writeTQueue e err) *> m
+      phi (DownloadFile path url m) = do
+        createDirectoryIfMissing True (takeDirectory path)
+        withReqSem $ do
+          req <- parseRequest url
+          runResourceT (httpSink req (const (sinkFile path)))
+        m
+      phi (WriteFile path contents m) = do
+        createDirectoryIfMissing True (takeDirectory path)
+        Lazy.writeFile path contents
+        m
+      phi (GetMetadata url m) = do
+        metadata <-
+          withReqSem $ do
+            (_, Just pout, _, phandle) <-
+              createProcess
+                (proc "youtube-dl" ["--flat-playlist", "-J", "-f", "best", url])
+                {std_out = CreatePipe}
+            json <- Strict.hGetContents pout
+            void (waitForProcess phandle)
+            return json
+        m metadata
+      phi (Concurrently actions m) = mapConcurrently run actions >>= m
+      run :: forall a. Scarch a -> IO a
+      run = iterM phi
+  in run scarch
+
 data Env = Env
   { reqSem :: QSem -- ^ Semaphore for HTTP Requests
   , outQueue :: TQueue String -- ^ STDOUT
   , errQueue :: TQueue String -- ^ STDERR
   }
 
-printInfo :: String -> ReaderT Env IO ()
-printInfo info = do
-  q <- asks outQueue
-  lift (atomically (writeTQueue q info))
+printInfo :: String -> Scarch ()
+printInfo info = liftF (PrintInfo info ())
 
-printError :: String -> ReaderT Env IO ()
-printError err = do
-  q <- asks errQueue
-  lift (atomically (writeTQueue q err))
+printError :: String -> Scarch ()
+printError err = liftF (PrintError err ())
 
-withReqSem :: ReaderT Env IO a -> ReaderT Env IO a
-withReqSem action = do
-  env <- ask
-  let sem = reqSem env
-  lift (bracket_ (waitQSem sem) (signalQSem sem) (runReaderT action env))
+downloadFile :: FilePath -> String -> Scarch ()
+downloadFile path url = liftF (DownloadFile path url ())
 
-downloadFile :: String -> FilePath -> IO ()
-downloadFile url file = do
-  req <- parseRequest url
-  runResourceT (httpSink req (const (sinkFile file)))
+writeFileLBS :: FilePath -> Lazy.ByteString -> Scarch ()
+writeFileLBS path contents = liftF (WriteFile path contents ())
+
+getYtdlJson :: String -> Scarch Strict.ByteString
+getYtdlJson url = liftF (GetMetadata url id)
+
+concurrently :: Traversable t => t (Scarch a) -> Scarch (t a)
+concurrently actions = liftF (Concurrently actions id)
 
 makeValidFileName :: FilePath -> FilePath
 makeValidFileName =
@@ -145,56 +193,37 @@ makeValidFileName =
       f x = x
   in makeValid . map f
 
-getYtdlJson :: String -> ReaderT Env IO Strict.ByteString
-getYtdlJson url =
-  withReqSem $ do
-    printInfo ("Loading JSON: " <> url)
-    lift $ do
-      (_, Just pout, _, phandle) <-
-        createProcess
-          (proc "youtube-dl" ["--flat-playlist", "-J", "-f", "best", url])
-          {std_out = CreatePipe}
-      json <- Strict.hGetContents pout
-      void (waitForProcess phandle)
-      return json
-
-saveTrack :: Track -> ReaderT Env IO ()
+saveTrack :: Track -> Scarch ()
 saveTrack track = do
   let artistPath = makeValidFileName (trackUploader track)
       songPath = makeValidFileName (trackTitle track <> "-" <> trackId track)
       fullPath = artistPath </> songPath
       metaFile = fullPath </> "metadata.json"
       songFile = fullPath </> songPath <.> trackExt track
-  printInfo ("Writing metadata: " <> fullPath)
-  lift $ do
-    createDirectoryIfMissing True fullPath
-    Lazy.writeFile metaFile (encode (trackMetadata track))
-  withReqSem $ do
-    printInfo ("Downloading track: " <> fullPath)
-    lift $ do
-      forM_
-        (trackThumbnail track)
-        (\thumbUrl ->
-           let thumbExt = takeExtension thumbUrl
-               thumbFile = fullPath </> "thumbnail" <.> thumbExt
-           in downloadFile thumbUrl thumbFile)
-      downloadFile (trackUrl track) songFile
+  writeFileLBS metaFile (encode (trackMetadata track))
+  printInfo ("Wrote metadata: " <> fullPath)
+  forM_
+    (trackThumbnail track)
+    (\thumbUrl ->
+       let thumbExt = takeExtension thumbUrl
+           thumbFile = fullPath </> "thumbnail" <.> thumbExt
+       in downloadFile thumbFile thumbUrl)
+  downloadFile songFile (trackUrl track)
+  printInfo ("Downloaded track: " <> fullPath)
 
-savePlaylist :: Playlist -> ReaderT Env IO ()
+savePlaylist :: Playlist -> Scarch ()
 savePlaylist playlist = do
-  env <- ask
   printInfo ("Saving playlist: " <> playlistTitle playlist)
-  lift
-    (void
-       (mapConcurrently
-          (flip runReaderT env . saveTracks . playlistentryUrl)
-          (playlistEntries playlist)))
+  void
+    (concurrently
+       (map (saveTracks . playlistentryUrl) (playlistEntries playlist)))
 
-saveTracks :: String -> ReaderT Env IO ()
+saveTracks :: String -> Scarch ()
 saveTracks url = do
   json <- getYtdlJson url
-  fromMaybe
+  maybe
     (printError ("Decode error while loading JSON from URL: " <> url))
+    (\x -> printInfo ("Loaded JSON: " <> url) *> x)
     (fmap saveTrack (decodeStrict' json) <|>
      fmap savePlaylist (decodeStrict' json))
 
@@ -209,7 +238,7 @@ main = do
     (race_
        (forever (atomically (readTQueue oQueue) >>= putStrLn))
        (forever (atomically (readTQueue eQueue) >>= hPutStrLn stderr)))
-    (void (mapConcurrently (flip runReaderT env . saveTracks) urls))
+    (runScarchIO ((void . concurrently . map saveTracks) urls) env)
   
 
 -- TODO command line options
