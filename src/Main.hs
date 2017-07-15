@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -117,13 +118,17 @@ instance FromJSON PlaylistEntry where
   parseJSON = genericParseJSON jsonOpts
 
 
-data ScarchF a where
+data ScarchF :: * -> * where
   PrintInfo :: String -> a -> ScarchF a
   PrintError :: String -> a -> ScarchF a
   DownloadFile :: FilePath -> String -> a -> ScarchF a
   WriteFile :: FilePath -> Lazy.ByteString -> a -> ScarchF a
   GetMetadata :: String -> (Strict.ByteString -> a) -> ScarchF a
-  Concurrently :: forall a t b. Traversable t => t (Scarch b) -> (t b -> a) -> ScarchF a
+  Concurrently
+    :: forall t a b. Traversable t
+    => t (Scarch a)
+    -> (t a -> b)
+    -> ScarchF b
 
 deriving instance Functor ScarchF
 
