@@ -68,7 +68,7 @@ copied here for your convenience.
 ```
 Scarch - A Parallel SoundCloud archiver
 
-Usage: scarch [-j|--jobs NUM_JOBS] ((-f|--file FILE) | URLS...)
+Usage: scarch [-o|--overwrite] [-j|--jobs NUM_JOBS] ((-f|--file FILE) | URLS...)
   Scarch is a wrapper around youtube-dl which can archive content from
   SoundCloud faster and more conveniently than using youtube-dl by itself.
   Scarch will download tracks and playlists from URLs supplied on the command
@@ -77,6 +77,10 @@ Usage: scarch [-j|--jobs NUM_JOBS] ((-f|--file FILE) | URLS...)
   folder, along with the track metadata, and track thumbnail if one exists.
 
 Available options:
+  -o,--overwrite           By default, Scarch will not overwrite files which
+                           already exist. Setting the overwrite flag will force
+                           Scarch to re-write metadata files and re-download
+                           tracks and thumbnails.
   -j,--jobs NUM_JOBS       Specify the number of files to download
                            simultaneously. Raising this number may increase
                            speed, but it will also take more processing power
