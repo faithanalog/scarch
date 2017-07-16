@@ -27,8 +27,8 @@ import Control.Monad.Free.Church (F, iterM, liftF)
 import qualified Data.ByteString as Strict
 import qualified Data.ByteString.Lazy as Lazy
 import Network.HTTP.Simple (httpSink, parseRequest)
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath (takeDirectory)
+import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
+import System.FilePath ((<.>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
 import System.Process
        (CreateProcess(std_out), StdStream(CreatePipe), createProcess,
@@ -50,11 +50,18 @@ deriving instance Functor ScarchF
 
 type Scarch = F ScarchF
 
+-- | Downloads a file from a URL to a destination. It saves to a partial file
+-- while downloading, and then moves the .part file to the destination. This
+-- avoids the potential problem of a download being permanently incomplete
+-- when the download is interrupted, and the overwrite flag is not set when
+-- the download is restarted.
 runDownloadFile :: FilePath -> String -> IO ()
 runDownloadFile path url = do
+  let partial = path <.> "part"
   createDirectoryIfMissing True (takeDirectory path)
   req <- parseRequest url
-  runResourceT (httpSink req (const (sinkFile path)))
+  runResourceT (httpSink req (const (sinkFile partial)))
+  renameFile partial path
 
 runWriteFile :: FilePath -> Lazy.ByteString -> IO ()
 runWriteFile path contents = do
@@ -71,18 +78,27 @@ runGetMetadata url = do
   void (waitForProcess phandle)
   return json
 
-runScarchIO :: Scarch () -> Int -> IO ()
-runScarchIO scarch numConnections = do
+runScarchIO :: Scarch () -> Int -> Bool -> IO ()
+runScarchIO scarch numConnections overwriteFiles = do
   o <- atomically newTQueue
   e <- atomically newTQueue
   reqSem <- newQSem numConnections
   let withReqSem :: IO a -> IO a
       withReqSem = bracket_ (waitQSem reqSem) (signalQSem reqSem)
+      whenFileWritable :: FilePath -> IO () -> IO ()
+      whenFileWritable
+        | overwriteFiles = \_ act -> act
+        | otherwise =
+          \path act -> do
+            exists <- doesFileExist path
+            unless exists act
       phi :: ScarchF (IO a) -> IO a
       phi (PrintInfo info m) = atomically (writeTQueue o info) *> m
       phi (PrintError err m) = atomically (writeTQueue e err) *> m
-      phi (DownloadFile path url m) = withReqSem (runDownloadFile path url) *> m
-      phi (WriteFile path contents m) = runWriteFile path contents *> m
+      phi (DownloadFile path url m) =
+        whenFileWritable path (withReqSem (runDownloadFile path url)) *> m
+      phi (WriteFile path contents m) =
+        whenFileWritable path (runWriteFile path contents) *> m
       phi (GetMetadata url m) = withReqSem (runGetMetadata url) >>= m
       phi (Concurrently actions m) = mapConcurrently run actions >>= m
       run :: Scarch a -> IO a

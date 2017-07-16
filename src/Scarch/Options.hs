@@ -11,6 +11,7 @@ data ScarchOptions = ScarchOptions
   { scarchOptFileNames :: [FilePath]
   , scarchOptUrls :: [String]
   , scarchNumJobs :: Int
+  , scarchOverwriteFIles :: Bool
   } deriving (Eq, Read, Show)
 
 data Input
@@ -45,6 +46,15 @@ numJobs =
      help
        "Specify the number of files to download simultaneously. Raising this number may increase speed, but it will also take more processing power and more bandwidth.")
 
+overwrite :: Parser Bool
+overwrite =
+  flag
+    False
+    True
+    (long "overwrite" <> short 'o' <>
+     help
+       "By default, Scarch will not overwrite files which already exist. Setting the overwrite flag will force Scarch to re-write metadata files and re-download tracks and thumbnails.")
+
 inputs :: Parser [Input]
 inputs = some (fileName <|> url)
 
@@ -52,13 +62,14 @@ scarchOptions :: Parser ScarchOptions
 scarchOptions =
   let fileNames xs = [x | InputFileName x <- xs]
       urls xs = [x | InputUrl x <- xs]
-      opts n xs =
+      opts ow n xs =
         ScarchOptions
         { scarchOptFileNames = fileNames xs
         , scarchOptUrls = urls xs
         , scarchNumJobs = n
+        , scarchOverwriteFIles = ow
         }
-  in liftA2 opts numJobs inputs
+  in liftA3 opts overwrite numJobs inputs
 
 optInfo :: InfoMod a
 optInfo =
