@@ -21,6 +21,7 @@ import GHC.Generics (Generic)
 
 data TrackMetadata = TrackMetadata
   { trackmetaId :: String
+  , trackmetaUploader :: String
   , trackmetaUploadDate :: String
   , trackmetaTitle :: String
   , trackmetaDescription :: Maybe String
@@ -44,6 +45,7 @@ trackMetadata :: Track -> TrackMetadata
 trackMetadata t =
   TrackMetadata
   { trackmetaId = trackId t
+  , trackmetaUploader = trackUploader t
   , trackmetaUploadDate = trackUploadDate t
   , trackmetaTitle = trackTitle t
   , trackmetaDescription = trackDescription t

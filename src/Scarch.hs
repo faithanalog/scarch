@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module Scarch
@@ -13,6 +12,7 @@ module Scarch
   , writeFileLBS
   , getYtdlJson
   , concurrently
+  , concurrently_
   ) where
 
 import Conduit (runResourceT, sinkFile)
@@ -85,7 +85,7 @@ runScarchIO scarch numConnections = do
       phi (WriteFile path contents m) = runWriteFile path contents *> m
       phi (GetMetadata url m) = withReqSem (runGetMetadata url) >>= m
       phi (Concurrently actions m) = mapConcurrently run actions >>= m
-      run :: forall a. Scarch a -> IO a
+      run :: Scarch a -> IO a
       run = iterM phi
   race_
     (race_
@@ -110,3 +110,6 @@ getYtdlJson url = liftF (GetMetadata url id)
 
 concurrently :: Traversable t => t (Scarch a) -> Scarch (t a)
 concurrently actions = liftF (Concurrently actions id)
+
+concurrently_ :: Traversable t => t (Scarch a) -> Scarch ()
+concurrently_ = void . concurrently
