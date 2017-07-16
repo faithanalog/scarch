@@ -62,9 +62,9 @@ scarchOptions =
 
 optInfo :: InfoMod a
 optInfo =
-  fullDesc <> header "Scarch - A SoundCloud archiver" <>
+  fullDesc <> header "Scarch - A Parallel SoundCloud archiver" <>
   progDesc
-    "Scarch is a wrapper around youtube-dl which can archive content from SoundCloud faster and more conveniently than using youtube-dl by itself. Scarch will download tracks and playlists from URLs supplied on the command line, and from URLs listed in files specified with the -f flag. Downloaded tracks are orgnanized into folders by uploader. Each track is stored in its own folder, along with the track metadata, and track thumbnail if one exists."
+    "Scarch is a wrapper around youtube-dl which can archive content from SoundCloud faster and more conveniently than using youtube-dl by itself. Scarch will download tracks and playlists from URLs supplied on the command line, and from URLs listed in files specified with the -f flag. Downloaded tracks are organized into folders by uploader. Each track is stored in its own folder, along with the track metadata, and track thumbnail if one exists."
 
 parserScarchOptions :: ParserInfo ScarchOptions
 parserScarchOptions = info (scarchOptions <**> helper) optInfo

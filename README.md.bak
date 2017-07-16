@@ -17,14 +17,14 @@ Scarch can...
     to playlists just fine.
 - Download all user uploads or user likes.
   - User uploads and user likes are just playlists! You can download
-    them with the URLs `https://soundcloud.com/user/tracks` or
+    them with the urls `https://soundcloud.com/user/tracks` or
     `https://soundcloud.com/user/likes`
 - Organize downloaded files.
   - Scarch organizes downloaded tracks into folders by uploader.
 - Download track metadata and thumbnails.
   - Each track is stored in its own folder, along with the track
     metadata, and track thumbnail if one exists.
-  - Scarch saves metadata in a JSON file for easier processing
+  - Scarch saves metadata in a json file for easier processing
     later.
   - Unfortunately, Scarch can't yet store the metadata directly in
     the audio file itself. I may add this feature later on, and if
@@ -73,8 +73,8 @@ Usage: scarch [-j|--jobs NUM_JOBS] ((-f|--file FILE) | URLS...)
   SoundCloud faster and more conveniently than using youtube-dl by itself.
   Scarch will download tracks and playlists from URLs supplied on the command
   line, and from URLs listed in files specified with the -f flag. Downloaded
-  tracks are organized into folders by uploader. Each track is stored in its own
-  folder, along with the track metadata, and track thumbnail if one exists.
+  tracks are orgnanized into folders by uploader. Each track is stored in its
+  own folder, along with the track metadata, and track thumbnail if one exists.
 
 Available options:
   -j,--jobs NUM_JOBS       Specify the number of files to download
