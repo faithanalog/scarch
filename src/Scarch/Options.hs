@@ -10,6 +10,7 @@ import Data.Monoid
 data ScarchOptions = ScarchOptions
   { scarchOptFileNames :: [FilePath]
   , scarchOptUrls :: [String]
+  , scarchNumJobs :: Int
   } deriving (Eq, Read, Show)
 
 data Input
@@ -36,6 +37,14 @@ url =
         help
           "URLs to download. If a URL points to a playlist, all tracks in the playlist will be downloaded. A SoundCloud user's tracks and likes are playlists too! Use https://soundcloud.com/username/tracks or https://soundcloud.com/username/likes to download them."))
 
+numJobs :: Parser Int
+numJobs =
+  option
+    auto
+    (long "jobs" <> short 'j' <> metavar "NUM_JOBS" <> value 8 <> showDefault <>
+     help
+       "Specify the number of files to download simultaneously. Raising this number may increase speed, but it will also take more processing power and more bandwidth.")
+
 inputs :: Parser [Input]
 inputs = some (fileName <|> url)
 
@@ -43,16 +52,19 @@ scarchOptions :: Parser ScarchOptions
 scarchOptions =
   let fileNames xs = [x | InputFileName x <- xs]
       urls xs = [x | InputUrl x <- xs]
-      opts xs =
+      opts n xs =
         ScarchOptions
-        {scarchOptFileNames = fileNames xs, scarchOptUrls = urls xs}
-  in fmap opts inputs
+        { scarchOptFileNames = fileNames xs
+        , scarchOptUrls = urls xs
+        , scarchNumJobs = n
+        }
+  in liftA2 opts numJobs inputs
 
 optInfo :: InfoMod a
 optInfo =
   fullDesc <> header "Scarch - A SoundCloud archiver" <>
   progDesc
-    "Scarch is a tool designed to archive content from SoundCloud. It uses the youtube-dl command line utility to download track and playlist metadata, and retrieve track download links. Scarch will download tracks and playlists from URLs supplied on the command line, and from URLs listed in files specified with the -f flag. All downloaded files will be sorted by uploader. One folder is created per uploader. Within each uploader folder, one folder is created per track, containing the track file, metadata, and the thumbnail if it has one."
+    "Scarch is a wrapper around youtube-dl which can archive content from SoundCloud faster and more conveniently than using youtube-dl by itself. Scarch will download tracks and playlists from URLs supplied on the command line, and from URLs listed in files specified with the -f flag. Downloaded tracks are orgnanized into folders by uploader. Each track is stored in its own folder, along with the track metadata, and track thumbnail if one exists."
 
 parserScarchOptions :: ParserInfo ScarchOptions
 parserScarchOptions = info (scarchOptions <**> helper) optInfo

@@ -59,4 +59,4 @@ main = do
   opts <- execScarchOptions
   fileUrls <- fmap concat (mapM getUrlsFromFile (scarchOptFileNames opts))
   let urls = fileUrls ++ scarchOptUrls opts
-  runScarchIO (saveUrlsConcurrently urls) 8
+  runScarchIO (saveUrlsConcurrently urls) (scarchNumJobs opts)
