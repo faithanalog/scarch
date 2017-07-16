@@ -1,16 +1,17 @@
 # Scarch - A SoundCloud Archiver
 
 Scarch is a wrapper around youtube-dl which can archive content from SoundCloud
-faster and more conveniently than using youtube-dl by itself.
+faster and more conveniently than using youtube-dl by itself. This tool has
+been created to assist people who may be worried that SoundCloud will shut down
+permanently, so that they may archive and preserve the works uploaded there.
 
 ## Features
 
 Scarch can...
 
 - Download multiple files in parallel.
-  - This helps to alleviate the considerable amount of time
-    youtube.dl spends retrieving track data before downloading
-    tracks.
+  - This helps to alleviate the time youtube.dl spends retrieving track data
+    before downloading tracks, and significantly speeds up archivals.
 - Download playlists.
   - Since Scarch uses youtube-dl under the hood, it can handle links
     to playlists just fine.
